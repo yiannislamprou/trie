@@ -10,21 +10,12 @@ import leon._
 
 object TrieTree{
 
-//abstract class Option[T] {
-//	
-//	def getOrElse(default: T) = this match {
-//		case Some(v) => v
-//	  case None() => default
-//	}
-//}
-
-//case class Some[T](v: T) extends Option[T]
-//case class None[T]() extends Option[T]	
-
 abstract class Trie {
 	
 	val WordLengthBound = BigInt(1)	//
 	val NumOfChildren = BigInt(1) //
+	
+// Main functions 	
 	
 	def findValue(s: List[Char]): (Option[BigInt], Boolean) = {
 		//require(/* s.size <= WordLengthBound && this.size <= 1 && NoEmptyChild && this.getChildren().size <= NumOfChildren*/ )
@@ -53,8 +44,125 @@ abstract class Trie {
 //	   res => ((first(l) contains c)/* && res != Empty*/) || (!(first(l) contains c)/* && res == Empty*/)
 	}
 	
-	// ---------------------------------------------------------------------------------------------------------------------
-	// Functions gathering content
+		// insert new string/value; if already in, then update value
+	def insert(s: List[Char], n: BigInt): Trie = {
+		require(s.size <= WordLengthBound) //
+		this match{
+		  case Empty =>
+		    s match{
+		      //case Nil() => Empty
+		      case Nil() => Node(Some(n), List[(Char, Trie)]())
+		      case Cons(h, t) => Node(None(), List((h, Empty.insert(t, n))))
+		    }
+		  case Node(v, children) =>
+		    s match{
+		      case Nil() => Node(Some(n), children)     // case internal/leaf node and no more string: update the value
+		      case Cons(h, t) =>
+		        val child = findInList(h, children)
+		        child match{
+		          case Empty => Node(v, children ++ List((h, child.insert(t, n))))
+		          case tree => Node(v, children -- List((h, child)) ++ List((h, child.insert(t, n))))
+		        }
+		      // case internal/leaf node and more string: continue in the child
+		    }
+		}
+  }ensuring {res => ((res.findValue(s))._1).getOrElse(0) == n// (setToList(res.contentPairs(Nil())) contains (s,n)) && 
+                   // (res.numOfWords() >= this.numOfWords()) &&
+                   // (res.numOfWords() <= this.numOfWords() + 1)
+            }
+  
+// Delete
+
+  def DELETE(s: List[Char]): Trie = {
+    require(s.size >= 1 && allLeafsAreWords && positiveValues && NoEmptyChild)
+	  
+	  val output = delete(s, this, List(s.head), this)
+	  output._2 match{
+	     case None() => output._1
+	     case Some((t, l)) => this.killPath(t, l)
+	  }
+	 } ensuring{ res =>   (((res.findValue(s))._2) == false) && 
+	                    // !(res.allWords(Nil()) contains s) &&
+                      // (res.numOfWords() <= this.numOfWords()) &&
+                      // (res.numOfWords() >= this.numOfWords() - 1) &&
+                      // res.NoEmptyChild &&
+	                    allLeafsAreWords &&
+	                    positiveValues &&
+	                    res.size <= this.size
+	  }
+  
+	def delete(s: List[Char], lastWordOrBranch: Trie, path: List[Char], start: Trie): (Trie,Option[(Trie, List[Char])]) = { 
+	  require(s.size >= 1 && allLeafsAreWords && positiveValues && path.size >= 1 && NoEmptyChild)
+	  
+	  s match{
+		    case Cons(h, Nil()) => 
+		    this match {
+		      case Empty => (Empty, None()) // string is not in the tree
+		      case Node(v, ch) => 
+		          val child = findInList(h, ch)
+		          child match{
+		            case Empty => (Node(v, ch), None()) // not in the tree
+		            case Node(v1, ch1) => 
+		              if(ch1.size == 0){
+		                if(ch.size <= 1)
+		                  (Node(v, ch -- List((h, child)) ++ List((h, Node(None(), ch1)))), Some((lastWordOrBranch, path ++ List(h))))  // leaf -> return info upwards
+		                else
+		                  (Node(v, ch -- List((h, child)) ++ List((h, Node(None(), ch1)))), Some((this, path ++ List(h))))
+		              }
+		              else  
+		                (Node(v, ch -- List((h, child))++ List((h, Node(None(), ch1)))), None()) // internal node - update value to None
+		            }
+		    } 
+		   case Cons(h, t) => 
+		    this match{
+		      case Empty => (Empty, None()) // string is not in the tree
+		      case Node(Some(v), ch) =>  // new last value
+		        val child = findInList(h, ch)
+		        val childUpd = child.delete(t, Node(Some(v), ch), path ++ List(h), start)
+		        (Node(Some(v), ch ++ List((h, childUpd._1)) -- List((h, child))), childUpd._2)
+		      case Node(None(), ch) => 
+		        val child = findInList(h, ch)
+		        if (ch.size <= 1){
+		          val childUpd = child.delete(t, lastWordOrBranch, path ++ List(h), start)
+		          (Node(None(), ch ++ List((h, childUpd._1)) -- List((h, child))), childUpd._2)
+		        }
+		        else {// new last branch
+		          val childUpd = child.delete(t, Node(None(), ch), path ++ List(h), start)
+		          (Node(None(), ch ++ List((h, childUpd._1)) -- List((h, child))), childUpd._2)
+		        }
+		    }
+	  }
+	      
+	} ensuring { res => allLeafsAreWords && 
+	                    positiveValues && 
+	                    // noDuplicateValues &&
+                      ((res._2.isInstanceOf[None[(Trie, List[Char])]] && (((res._1.findValue(s))._2) == false)) || (!res._2.isInstanceOf[None[(Trie, List[Char])]] && start.notEmptyPathTo((res._2.getOrElse((Empty, Nil())))._1, (res._2.getOrElse((Empty, Nil())))._2)))
+	}
+	
+	
+   def killPath(s: Trie, path: List[Char]): Trie = {
+    require(path.size >= 1 && notEmptyPathTo(s, path) && allLeafsAreWords && positiveValues)
+    this match{
+      case Node(v, ch) =>
+        if (s == this)
+            path match{
+              case Cons(h, t) => 
+                val child = findInList(h, ch)
+                Node(v, ch -- List((h, child)))
+            }
+        else
+            path match{
+              case Cons(h, t) => 
+                val child = findInList(h, ch)
+                Node(v, ch -- List((h, child)) ++ List((h, child.killPath(s, t))))
+            }
+      }
+  } ensuring{
+    res => allLeafsAreWords && positiveValues
+  }
+	
+// -------------------------------------------------------------------------
+// Functions gathering content
 	
 	def contents(): Set[BigInt] = {
 	  this match{
@@ -109,91 +217,22 @@ abstract class Trie {
 	  setToList(this.contentPairs(Nil())).size
 	}
 	
-	// -------------------------------------------------------------------------------------------------------------------------------
-	
-	// insert new string/value; if already in, then update value
-	def insert(s: List[Char], n: BigInt): Trie = {
-		require(s.size <= WordLengthBound) //
-		this match{
-		  case Empty =>
-		    s match{
-		      //case Nil() => Empty
-		      case Nil() => Node(Some(n), List[(Char, Trie)]())
-		      case Cons(h, t) => Node(None(), List((h, Empty.insert(t, n))))
-		    }
-		  case Node(v, children) =>
-		    s match{
-		      case Nil() => Node(Some(n), children)     // case internal/leaf node and no more string: update the value
-		      case Cons(h, t) =>
-		        val child = findInList(h, children)
-		        child match{
-		          case Empty => Node(v, children ++ List((h, child.insert(t, n))))
-		          case tree => Node(v, children -- List((h, child)) ++ List((h, child.insert(t, n))))
-		        }
-		      // case internal/leaf node and more string: continue in the child
-		    }
-		}
-  }ensuring {res => ((res.findValue(s))._1).getOrElse(0) == n// (setToList(res.contentPairs(Nil())) contains (s,n)) && 
-                   // (res.numOfWords() >= this.numOfWords()) &&
-                   // (res.numOfWords() <= this.numOfWords() + 1)
-            }
-	
-	def delete(s: List[Char], lastWordOrBranch: Trie, path: List[Char], count: BigInt, start: Trie): Trie = { // (s, this, this)
-	  require(
-	  s.size >= 1 && 
-	  lastWordOrBranch != Empty &&
-	  start != Empty &&
-	  ((count > 0 && path.size >= 1) // after first call
-	  || (count == 0 && path == Cons(s.head, Nil()) && lastWordOrBranch == this && start == this)) && // first call
-	  allLeafsAreWords // &&
-	  )
-	  
-	  s match{
-		  case Cons(h, Nil()) => 
-		    this match {
-		      case Empty => Empty // string is not in the tree
-		      case Node(v, ch) => 
-		          val child = findInList(h, ch)
-		          child match{
-		            case Empty => Node(v, ch) // string is not in the tree
-		            case Node(v1, Nil()) => killPath(start, path) // string lies on a leaf; delete all path needed
-		            case Node(v1, ch1) => Node(v, ch -- List((h, Node(v1, ch1))) ++ List((h, Node(None(), ch1)))) // internal node case; just set value to None()
-		          } 
-		    }
-		  case Cons(h, t) => 
-		    this match{
-		      case Empty => Empty // string is not in the tree
-		      case Node(Some(v), ch) => // new marked node
-		        Node(Some(v), ch ++ List((h, findInList(h, ch).delete(t, Node(Some(v), ch), path ++ List(h), 1, start))) -- List((h, findInList(h, ch))) )
-		      case Node(None(), ch) => 
-		        if (ch.size > 1) // new branch
-		          Node(None(), ch ++ List((h, findInList(h, ch).delete(t, Node(None(), ch), path ++ List(h), 1, start))) -- List((h, findInList(h, ch))) )
-		        else 
-		          Node(None(), ch ++ List((h, findInList(h, ch).delete(t, lastWordOrBranch, path, 1, start))) -- List((h, findInList(h, ch))) )
-		    }
-		  }	
-	      
-	} ensuring { res => 
-	  !(res.allWords(Nil()) contains s) &&
-	  (res.numOfWords() <= this.numOfWords()) &&
-    (res.numOfWords() >= this.numOfWords() - 1) &&
-    (res.size() <= this.size()) // &&
-    // allLeafsAreWords
+	def size(): BigInt = {
+	  this match {
+	    case Empty => BigInt(0)
+	    case Node(v, t) => BigInt(1) + sizeList(second(t))
+	  }
 	}
-
-
-  def killPath(s: Trie, path: List[Char]): Trie = {
-    require(path.size >= 1 && s != Empty && findInList(path.head, s.getChildren) != Empty)
-    s match{
-      case Node(v, ch) =>
-        path match{
-          case Cons(h, Nil()) => Node(v, ch -- List((h, findInList(h, ch))))
-          case Cons(h, t) => Node(v, ch ++ List((h, killPath(findInList(h, ch), t))) -- List((h, findInList(h, ch))))
-        }
-    } 
-  }
-
-///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	
+	def sizeList(l: List[Trie]): BigInt = {
+	  l match{
+	    case Nil() => BigInt(0)
+	    case Cons(c, t) => c.size + sizeList(t)
+	  }
+	}
+	
+// ------------------------------------------------------------------------------
+// Properties' functions
   
   def allLeafsAreWords(): Boolean = {
     this match{
@@ -214,21 +253,7 @@ abstract class Trie {
     }  
   }
   
-  def getValue(): Option[BigInt] = {
-    this match{
-      case Empty => None()
-      case Node(v, t) => v
-    }
-  }
-  
-	def getChildren() : List[(Char, Trie)] = {
-	  this match{
-	    case Empty => Nil()
-	    case Node(v, ch) => ch
-	  }
-	}
-	
-	def NoEmptyChild(): Boolean = {
+  def NoEmptyChild(): Boolean = {
 	  this match{
 	    case Empty => true
 	    case Node(v, ch) => if (second(ch) contains Empty) false else NoEmptyChildList(ch)
@@ -249,6 +274,52 @@ abstract class Trie {
 	    case Cons(h, t) => NoEmptySecond(t)
 	  }
 	}
+  
+  def positiveValues(): Boolean = {
+     this match{
+       case Empty => true
+       case Node(None(), ch) => positiveValuesList(ch)
+       case Node(Some(v), ch) => (v > 0) && positiveValuesList(ch)
+     }
+   }
+   
+  def positiveValuesList(l: List[(Char,Trie)]): Boolean = {
+     l match{
+       case Nil() => true
+       case Cons((h, t), tt) => t.positiveValues() && positiveValuesList(tt)
+     }
+   }
+  
+  def notEmptyPathTo(s: Trie, p: List[Char]): Boolean = {
+     this match{
+       case Empty => false
+       case Node(v, ch) =>
+        if(s == this) 
+          if(p.size >= 1) true else false // need to know which child to kill
+        else
+            p match{
+              case Nil() => false 
+              case Cons(h, t) => findInList(h,ch).notEmptyPathTo(s, t)
+            }
+      }
+   }
+  
+  // -------------------------------------------------------------------------
+  // Auxiliary functions
+  
+  def getValue(): Option[BigInt] = {
+    this match{
+      case Empty => None()
+      case Node(v, t) => v
+    }
+  }
+  
+	def getChildren() : List[(Char, Trie)] = {
+	  this match{
+	    case Empty => Nil()
+	    case Node(v, ch) => ch
+	  }
+	}
 	
 	def first(l: List[(Char, Trie)]) : List[Char] = {
 	  l match{
@@ -264,29 +335,13 @@ abstract class Trie {
 	  }
 	}
 	
-	def size(): BigInt = {
-	  this match {
-	    case Empty => BigInt(0)
-	    case Node(v, t) => BigInt(1) + sizeList(second(t))
-	  }
-	}
-	
-	def sizeList(l: List[Trie]): BigInt = {
-	  l match{
-	    case Nil() => BigInt(0)
-	    case Cons(c, t) => c.size + sizeList(t)
-	  }
-	}
 }
 
+// ----------------------------------------------------------------------------------
+// Case Definitions
+
 case object Empty extends Trie
-case class Node(v: Option[BigInt], children: List[(Char, Trie)]) extends Trie // v is None() for root and (some) intermediate nodes
+case class Node(v: Option[BigInt], children: List[(Char, Trie)]) extends Trie 
+// v is None() for root and (some) intermediate nodes
 
-// Bit-Strings version ??
-abstract class Bit
-case object One extends Bit
-case object Zero extends Bit
-
-
-// PATRICIA Tries ?? [substrings on edges]
 }

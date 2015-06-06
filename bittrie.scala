@@ -63,25 +63,37 @@ abstract class BitTrie {
             }
 	
 	def DELETE(s: List[Bit]): BitTrie = {
-	  val output = delete(s, this, List(s.head), 0, this)
+	  require(s.size >= 1 && allLeafsAreWords && positiveValues)
+	  val output = delete(s, this, List(s.head), this)
 	  output._2 match{
 	    case None() => output._1
-	    case Some((t, l)) => killPath(t, l)
+	    case Some((t, l)) => this.killPath(t, l)
 	  }
+	} ensuring{ res =>   (((res.findValue(s))._2) == false) && 
+	                    // !(res.allWords(Nil()) contains s) &&
+                      // (res.numOfWords() <= this.numOfWords()) &&
+                      // (res.numOfWords() >= this.numOfWords() - 1) &&
+	                    allLeafsAreWords &&
+	                    positiveValues &&
+	                    res.size <= this.size
 	}
 	
-	def delete(s: List[Bit], lastWordOrBranch: BitTrie, path: List[Bit], count: BigInt, start: BitTrie): (BitTrie, Option[(BitTrie, List[Bit])]) = {
-	  require(s.size >= 1)
-//	  require(s.size >= 1 && ((count > 0 && lastWordOrBranch != Empty) || (lastKey == s.head && lastWordOrBranch == this && count == 0))/* && allLeafsAreWords*/) // initially - maybe use count
+	def delete(s: List[Bit], lastWordOrBranch: BitTrie, path: List[Bit], start: BitTrie): (BitTrie, Option[(BitTrie, List[Bit])]) = {
+	  require(s.size >= 1 && allLeafsAreWords && positiveValues && path.size >= 1/* && noDuplicateValues */)
+	  
 		s match{
 		    case Cons(Zero, Nil()) => 
 		    this match {
 		      case Empty => (Empty, None()) // string is not in the tree
 		      case Node(l, v, r) => 
 		            l match{
-		              case Empty => (Node(l, v, r), None())
-		              case Node(Empty, v1, Empty) => (Node(Node(Empty, None(), Empty), v, r), Some((start, path)))
-		              case Node(l2, v2, r2) => (Node(Node(l2, None(), r2), v, r), None())
+		              case Empty => (Node(l, v, r), None()) // not in the tree
+		              case Node(Empty, v1, Empty) => 
+		                if(r == Empty)
+		                  (Node(Node(Empty, None(), Empty), v, r), Some((lastWordOrBranch, path ++ List(Zero)))) // leaf -> return info upwards
+		                else
+		                  (Node(Node(Empty, None(), Empty), v, r), Some((this, path ++ List(Zero))))
+		              case Node(l2, v2, r2) => (Node(Node(l2, None(), r2), v, r), None()) // internal node - update value to None
 		            }
 		    } 
 		    case Cons(One, Nil()) => 
@@ -90,57 +102,61 @@ abstract class BitTrie {
 		      case Node(l, v, r) => 
 		            r match{
 		              case Empty => (Node(l, v, r), None())
-		              case Node(Empty, v1, Empty) => (Node(l, v, Node(Empty, None(), Empty)), Some((start, path)))
+		              case Node(Empty, v1, Empty) => (Node(l, v, Node(Empty, None(), Empty)), Some((lastWordOrBranch, path ++ List(One))))
 		              case Node(l2, v2, r2) => (Node(l, v, Node(l2, None(), r2)), None())
 		            }
 		     } 
 		   case Cons(Zero, t) => 
 		    this match{
 		      case Empty => (Empty, None()) // string is not in the tree
-		      case Node(l, Some(v), r) => 
-		        val child = l.delete(t, Node(l, Some(v), r), path ++ List(Zero), 1, start)
+		      case Node(l, Some(v), r) =>  // new last value
+		        val child = l.delete(t, Node(l, Some(v), r), path ++ List(Zero), start)
 		        (Node(child._1, Some(v), r), child._2)
 		      case Node(l, None(), Empty) => 
-		        val child = l.delete(t, lastWordOrBranch, path, 1, start)
+		        val child = l.delete(t, lastWordOrBranch, path ++ List(Zero), start)
 		        (Node(child._1, None(), Empty), child._2)
-		      case Node(l, None(), r) => 
-		        val child = l.delete(t, Node(l, None(), r), path ++ List(Zero), 1, start)
+		      case Node(l, None(), r) => // new last branch
+		        val child = l.delete(t, Node(l, None(), r), path ++ List(Zero), start)
 		        (Node(child._1, None(), r), child._2)
 		    }
 		  case Cons(One, t) => 
 		    this match{
 		      case Empty => (Empty, None()) // string is not in the tree
 		      case Node(l, Some(v), r) => 
-		        val child = r.delete(t, Node(l, Some(v), r), path ++ List(One), 1, start)
+		        val child = r.delete(t, Node(l, Some(v), r), path ++ List(One), start)
 		        (Node(l, Some(v), child._1), child._2)
 		      case Node(Empty, None(), r) => 
-		        val child = r.delete(t, lastWordOrBranch, path, 1, start)
+		        val child = r.delete(t, lastWordOrBranch, path ++ List(One), start)
 		        (Node(Empty, None(), child._1), child._2)
 		      case Node(l, None(), r) => 
-		        val child = r.delete(t, Node(l, None(), r), path ++ List(One), 1, start)
+		        val child = r.delete(t, Node(l, None(), r), path ++ List(One), start)
 		        (Node(l, None(), child._1), child._2)
 		    }
 		  }	
 	      
-//	} ensuring { res => 
-//	  !(res.allWords(Nil()) contains s) &&
-//	  (res.numOfWords() <= this.numOfWords()) &&
- //   (res.numOfWords() >= this.numOfWords() - 1) // &&allLeafsAreWords
+	} ensuring { res => allLeafsAreWords && 
+	                    positiveValues && 
+	                    // noDuplicateValues &&
+                      ((res._2.isInstanceOf[None[(BitTrie, List[Bit])]] && (((res._1.findValue(s))._2) == false)) || (!res._2.isInstanceOf[None[(BitTrie, List[Bit])]] && start.notEmptyPathTo((res._2.getOrElse((Empty, Nil())))._1, (res._2.getOrElse((Empty, Nil())))._2)))
 	}
   
-  
-  
   def killPath(s: BitTrie, path: List[Bit]): BitTrie = {
- //   require(path.size >= 1 && s != Empty)
-    s match{
+    require(path.size >= 1 && notEmptyPathTo(s, path) && allLeafsAreWords && positiveValues)
+    this match{
       case Node(l, v, r) =>
-        path match{
-          case Cons(Zero, Nil()) => Node(Empty, v, r)
-          case Cons(One, Nil()) => Node(l, v, Empty)
-          case Cons(Zero, t) => Node(killPath(l, t), v, r)
-          case Cons(One, t) => Node(l, v, killPath(r, t))        
-        }
-    } 
+        if (s == this)
+            path match{
+              case Cons(Zero, t) => Node(Empty, v, r)
+              case Cons(One, t) => Node(l, v, Empty)
+            }
+        else
+            path match{
+              case Cons(Zero, t) => Node(l.killPath(s, t), v, r)
+              case Cons(One, t) => Node(l, v, r.killPath(s, t))
+            }
+      }
+  } ensuring{
+    res => allLeafsAreWords && positiveValues
   }
   
   // ---------------------------------------------------------------------------------------------------------------------
@@ -220,6 +236,21 @@ abstract class BitTrie {
    
    def noDuplicateValues(): Boolean = {
      (this.contentsList.size == setToList(this.contents).size)
+   }
+   
+   def notEmptyPathTo(s: BitTrie, p: List[Bit]): Boolean = {
+     this match{
+       case Empty => false
+       case Node(l, v, r) =>
+        if(s == this) 
+          if(p.size >= 1) true else false // need to know which child to kill
+        else
+            p match{
+              case Nil() => false 
+              case Cons(Zero, t) => l.notEmptyPathTo(s, t)
+              case Cons(One, t) => r.notEmptyPathTo(s, t)
+            }
+      }
    }
 }
 
